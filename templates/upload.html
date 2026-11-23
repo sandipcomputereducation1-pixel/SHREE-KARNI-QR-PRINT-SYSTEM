@@ -1,22 +1,40 @@
-<!doctype html><html lang="hi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Shree Karni QR Print</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<!doctype html><html lang="hi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Shree Karni QR Print System</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head><body>
 <header><h1>Shree Karni QR Print System</h1><p>Shree Karni Computer Dalot – Pratapgarh, Rajasthan</p></header>
 <main class="panel"><h2>फोटो / PDF अपलोड करें</h2>
 {% with messages = get_flashed_messages() %}{% for m in messages %}<p class="notice">{{m}}</p>{% endfor %}{% endwith %}
-<form method="post" enctype="multipart/form-data">
-<label>ग्राहक का नाम<input name="customer_name" placeholder="नाम"></label>
-<label>मोबाइल नंबर<input name="mobile" inputmode="numeric" placeholder="मोबाइल नंबर"></label>
+<form id="orderForm" method="post" enctype="multipart/form-data">
+<label>ग्राहक का नाम<input name="customer_name" maxlength="100" placeholder="नाम"></label>
+<label>मोबाइल नंबर<input name="mobile" inputmode="numeric" maxlength="20" placeholder="मोबाइल नंबर"></label>
 <label>फाइल चुनें<input id="file" type="file" name="file" accept="image/jpeg,image/png,image/webp,application/pdf" required></label>
-<div id="preview" class="preview">फाइल चुनने पर Preview यहाँ दिखेगा</div>
+<div id="photoTools" class="editor" hidden><h3>Photo Editor</h3><div class="preview"><canvas id="photoCanvas"></canvas></div>
+<div class="toolrow"><button type="button" class="secondary" id="rotate">Rotate 90°</button><label class="inline-label">Zoom <input id="zoom" type="range" min="1" max="2" step=".05" value="1"></label></div>
+<label class="check"><input type="checkbox" name="make_sheet" value="yes"> 4×6 Inch शीट पर 8 फोटो बनाएं (25×35 mm)</label>
+<p class="muted">फोटो का एडिट किया हुआ Preview ऑर्डर में सेव होगा।</p></div>
+<div id="pdfTools" class="editor" hidden><h3>PDF Editor</h3><div class="preview"><iframe id="pdfPreview" title="PDF Preview"></iframe></div>
+<div class="grid2"><label>पहला पेज<input name="page_start" type="number" min="1" value="1"></label><label>आखिरी पेज<input name="page_end" type="number" min="1" value="1"></label>
+<label>Rotate<select name="pdf_rotate"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
+<label>Crop margin (%)<input name="pdf_margin" type="number" min="0" max="20" value="0"></label></div>
+<p class="muted">PDF Preview यहाँ दिखेगा। Page range, rotation और crop margin Submit के समय लागू होंगे।</p></div>
 <label>Print Size<select name="print_size"><option>A4</option><option>4×6 Inch</option><option>ID Card</option><option>PVC Card 98×54 mm</option></select></label>
-<label>Copies<input name="copies" type="number" min="1" max="100" value="1"></label>
+<label>Copies<input name="copies" type="number" min="1" max="100" value="1" required></label>
 <label>Payment Mode<select name="payment_mode"><option>Cash</option><option>UPI</option></select></label>
 <label>Amount (₹)<input name="amount" type="number" min="0" step="0.01" value="0"></label>
-<button type="submit">Upload & Generate Order ID</button></form>
-<p class="muted">फोटो/PDF की अधिकतम फाइल सीमा 25 MB है। UPI भुगतान Admin द्वारा सत्यापित किया जाएगा।</p></main>
+<button type="submit">Edit पूरा करें और Order Submit करें</button></form>
+<p class="muted">अधिकतम फाइल सीमा 25 MB। UPI भुगतान Admin द्वारा सत्यापित किया जाएगा।</p></main>
 <footer>सहायता: 7891411425 / 7339871128</footer>
 <script>
-const input=document.getElementById('file'), box=document.getElementById('preview');
-input.addEventListener('change',()=>{box.innerHTML='';const f=input.files[0];if(!f){box.textContent='फाइल चुनने पर Preview यहाँ दिखेगा';return;}
-if(f.type==='application/pdf'){box.textContent='PDF चुनी गई: '+f.name+' (पूरा PDF Preview Admin/Print में उपलब्ध होगा)';}
-else{const img=document.createElement('img');img.src=URL.createObjectURL(f);img.alt='Photo preview';box.appendChild(img);}});
+const input=document.getElementById('file'), photoTools=document.getElementById('photoTools'), pdfTools=document.getElementById('pdfTools');
+const canvas=document.getElementById('photoCanvas'), ctx=canvas.getContext('2d'), zoom=document.getElementById('zoom');
+let image=null, rotation=0, objectUrl=null;
+function draw(){if(!image)return;const z=Number(zoom.value);const sw=image.width/z, sh=image.height/z;canvas.width=900;canvas.height=1260;ctx.fillStyle="#fff";ctx.fillRect(0,0,canvas.width,canvas.height);ctx.save();ctx.translate(450,630);ctx.rotate(rotation*Math.PI/180);const scale=Math.max(900/sw,1260/sh);ctx.drawImage(image,-sw/2,-sh/2,sw,sh,-450,-630,900,1260);ctx.restore();}
+input.addEventListener('change',()=>{photoTools.hidden=true;pdfTools.hidden=true;if(objectUrl)URL.revokeObjectURL(objectUrl);const f=input.files[0];if(!f)return;objectUrl=URL.createObjectURL(f);
+if(f.type==='application/pdf'){pdfTools.hidden=false;document.getElementById('pdfPreview').src=objectUrl;document.querySelector('[name=page_end]').value=1;}
+else{photoTools.hidden=false;image=new Image();image.onload=draw;image.src=objectUrl;rotation=0;zoom.value=1;}});
+document.getElementById('rotate').addEventListener('click',()=>{rotation=(rotation+90)%360;draw();});
+zoom.addEventListener('input',draw);
+document.getElementById('orderForm').addEventListener('submit', async (e)=>{
+ if(!image)return;
+ e.preventDefault();
+ canvas.toBlob(blob=>{const edited=new File([blob],"edited-photo.jpg",{type:"image/jpeg"});const dt=new DataTransfer();dt.items.add(edited);input.files=dt.files;e.target.submit();},"image/jpeg",.94);
+});
 </script></body></html>

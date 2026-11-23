@@ -1,5 +1,6 @@
-<!doctype html><html lang="hi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Order {{order.id}}</title><link rel="stylesheet" href="/static/style.css"></head><body><header><h1>Order Submitted</h1><p>Shree Karni QR Print System</p></header><main class="panel">
+<!doctype html><html lang="hi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Order {{order.id}}</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head><body>
+<header><h1>Order Submitted</h1><p>Shree Karni QR Print System</p></header><main class="panel">
 <h2>आपका Order ID</h2><div class="orderid">{{order.id}}</div><p>इस Order ID का स्क्रीनशॉट रखें और दुकान पर दिखाएँ।</p>
 <table><tr><th>नाम</th><td>{{order.customer_name or '—'}}</td></tr><tr><th>Print Size</th><td>{{order.print_size}}</td></tr><tr><th>Copies</th><td>{{order.copies}}</td></tr><tr><th>Payment</th><td>{{order.payment_mode}}</td></tr><tr><th>Amount</th><td>₹{{'%.2f'|format(order.amount)}}</td></tr><tr><th>Status</th><td>{{order.status}}</td></tr></table>
-{% if order.payment_mode == 'UPI' %}<p>UPI ID: <b>{{upi_id}}</b></p><p class="muted">भुगतान करने के बाद दुकान पर UPI transaction दिखाएँ। यह पेज भुगतान की स्वतः पुष्टि नहीं करता।</p>{% endif %}
-<a class="button" href="/upload">नया Order करें</a></main></body></html>
+{% if order.payment_mode == 'UPI' %}<p>UPI ID: <b>{{upi_id or 'दुकान पर संपर्क करें'}}</b></p><p class="muted">भुगतान करने के बाद दुकान पर UPI transaction दिखाएँ। यह पेज भुगतान की स्वतः पुष्टि नहीं करता।</p>{% endif %}
+<a class="button" href="{{ url_for('upload_page') }}">नया Order करें</a></main></body></html>
