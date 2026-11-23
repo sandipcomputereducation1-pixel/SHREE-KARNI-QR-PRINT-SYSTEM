@@ -1,1 +1,306 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Shree Karni QR Print System</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<style>
+.editor-buttons{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0}
+.editor-btn{padding:20px 10px;border:2px solid #dce3ed;border-radius:14px;background:#fff;color:#172554;cursor:pointer;font-size:17px;font-weight:bold}
+.editor-btn.active{border-color:#2563eb;background:#eff6ff;color:#1d4ed8}
+.editor-btn span{display:block;font-size:30px;margin-bottom:8px}
+.editor{margin:18px 0;padding:16px;border:1px solid #ddd;border-radius:12px}
+.preview{background:#eee;padding:10px;text-align:center;border-radius:10px;overflow:auto}
+#photoCanvas{max-width:100%;max-height:420px;background:white}
+#pdfPreview{width:100%;height:450px;border:0}
+.toolrow{display:flex;gap:15px;align-items:center;flex-wrap:wrap;margin:15px 0}
+.toolrow button{padding:10px 15px}
+.inline-label{display:flex;align-items:center;gap:8px}
+.check{display:flex;gap:10px;align-items:center}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.muted{font-size:13px;color:#666}
+[hidden]{display:none!important}
+@media(max-width:500px){.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
 
+<header>
+<h1>Shree Karni QR Print System</h1>
+<p>Shree Karni Computer Dalot – Pratapgarh, Rajasthan</p>
+</header>
+
+<main class="panel">
+<h2>अपना Editor चुनें</h2>
+
+<div class="editor-buttons">
+<button type="button" class="editor-btn active" id="photoMode">
+<span>📷</span>PHOTO EDITOR
+<small>Crop • Rotate • Zoom</small>
+</button>
+<button type="button" class="editor-btn" id="pdfMode">
+<span>📄</span>PDF EDITOR
+<small>Preview • Page • Rotate</small>
+</button>
+</div>
+
+{% with messages = get_flashed_messages() %}
+{% for m in messages %}
+<p class="notice">{{m}}</p>
+{% endfor %}
+{% endwith %}
+
+<form id="orderForm" method="post" enctype="multipart/form-data">
+
+<label>ग्राहक का नाम
+<input name="customer_name" maxlength="100" placeholder="नाम" required>
+</label>
+
+<label>मोबाइल नंबर
+<input name="mobile" inputmode="numeric" maxlength="20" placeholder="मोबाइल नंबर" required>
+</label>
+
+<label>फोटो / PDF फाइल चुनें
+<input id="file" type="file" name="file"
+accept="image/jpeg,image/png,image/webp" required>
+</label>
+
+<!-- PHOTO EDITOR -->
+<div id="photoTools" class="editor">
+<h3>📷 Photo Editor</h3>
+<div class="preview">
+<canvas id="photoCanvas"></canvas>
+<p id="photoMessage" class="muted">फोटो चुनने पर Preview दिखेगा।</p>
+</div>
+
+<div class="toolrow">
+<button type="button" class="secondary" id="rotate">↻ Rotate 90°</button>
+<label class="inline-label">
+Zoom
+<input id="zoom" type="range" min="1" max="2" step=".05" value="1">
+</label>
+</div>
+
+<input type="hidden" name="photo_rotate" id="photoRotate" value="0">
+<input type="hidden" name="photo_zoom" id="photoZoom" value="1">
+
+<label class="check">
+<input type="checkbox" name="make_sheet" value="yes">
+4×6 Inch शीट पर 8 फोटो बनाएं (25×35 mm)
+</label>
+<p class="muted">फोटो की प्रोसेसिंग सर्वर पर होगी।</p>
+</div>
+
+<!-- PDF EDITOR -->
+<div id="pdfTools" class="editor" hidden>
+<h3>📄 PDF Editor</h3>
+<div class="preview">
+<iframe id="pdfPreview" title="PDF Preview"></iframe>
+<p id="pdfMessage" class="muted">PDF चुनने पर Preview दिखेगा।</p>
+</div>
+
+<div class="grid2">
+<label>पहला पेज
+<input name="page_start" type="number" min="1" value="1">
+</label>
+<label>आखिरी पेज
+<input name="page_end" type="number" min="1" placeholder="सभी पेज">
+</label>
+<label>Rotate
+<select name="pdf_rotate">
+<option value="0">0°</option>
+<option value="90">90°</option>
+<option value="180">180°</option>
+<option value="270">270°</option>
+</select>
+</label>
+<label>Crop Margin (%)
+<input name="pdf_margin" type="number" min="0" max="20" value="0">
+</label>
+</div>
+<p class="muted">चुने गए पेज, Rotation और Crop सर्वर पर लागू होंगे।</p>
+</div>
+
+<label>Print Size
+<select name="print_size">
+<option>A4</option>
+<option>4×6 Inch</option>
+<option>ID Card</option>
+<option>PVC Card 98×54 mm</option>
+</select>
+</label>
+
+<label>Copies
+<input name="copies" type="number" min="1" max="100" value="1" required>
+</label>
+
+<label>Payment Mode
+<select name="payment_mode">
+<option>Cash</option>
+<option>UPI</option>
+</select>
+</label>
+
+<label>Amount (₹)
+<input name="amount" type="number" min="0" step="0.01" value="0">
+</label>
+
+<button type="submit" id="submitBtn">Upload & Generate Order ID</button>
+
+</form>
+
+<p class="muted">अधिकतम फाइल सीमा 25 MB। UPI भुगतान Admin द्वारा सत्यापित किया जाएगा।</p>
+</main>
+
+<footer>सहायता: 7891411425 / 7339871128</footer>
+
+<script>
+const input = document.getElementById("file");
+const photoMode = document.getElementById("photoMode");
+const pdfMode = document.getElementById("pdfMode");
+const photoTools = document.getElementById("photoTools");
+const pdfTools = document.getElementById("pdfTools");
+const canvas = document.getElementById("photoCanvas");
+const ctx = canvas.getContext("2d");
+const zoom = document.getElementById("zoom");
+
+let image = null;
+let rotation = 0;
+let objectUrl = null;
+let selectedMode = "photo";
+
+function setMode(mode) {
+ selectedMode = mode;
+ photoMode.classList.toggle("active", mode === "photo");
+ pdfMode.classList.toggle("active", mode === "pdf");
+
+ photoTools.hidden = mode !== "photo";
+ pdfTools.hidden = mode !== "pdf";
+
+ input.accept = mode === "photo"
+ ? "image/jpeg,image/png,image/webp"
+ : "application/pdf";
+
+ input.value = "";
+ image = null;
+
+ if (objectUrl) {
+  URL.revokeObjectURL(objectUrl);
+  objectUrl = null;
+ }
+
+ canvas.width = 0;
+ canvas.height = 0;
+
+ document.getElementById("photoMessage").hidden = false;
+ document.getElementById("pdfMessage").hidden = false;
+}
+
+photoMode.addEventListener("click", () => setMode("photo"));
+pdfMode.addEventListener("click", () => setMode("pdf"));
+
+function draw() {
+ if (!image) return;
+
+ const z = Number(zoom.value);
+ const sw = image.width / z;
+ const sh = image.height / z;
+
+ canvas.width = 450;
+ canvas.height = 630;
+
+ ctx.fillStyle = "#fff";
+ ctx.fillRect(0,0,450,630);
+
+ ctx.save();
+ ctx.translate(225,315);
+ ctx.rotate(rotation * Math.PI / 180);
+
+ const scale = Math.max(450/sw,630/sh);
+
+ ctx.drawImage(
+  image,
+  -sw/2,-sh/2,sw,sh,
+  -225,-315,450,630
+ );
+
+ ctx.restore();
+
+ document.getElementById("photoMessage").hidden = true;
+ document.getElementById("photoRotate").value = rotation;
+ document.getElementById("photoZoom").value = z;
+}
+
+input.addEventListener("change", () => {
+ const f = input.files[0];
+ if (!f) return;
+
+ if (objectUrl) URL.revokeObjectURL(objectUrl);
+ objectUrl = URL.createObjectURL(f);
+
+ if (selectedMode === "pdf") {
+  if (f.type !== "application/pdf") {
+   alert("कृपया PDF फाइल चुनें।");
+   input.value = "";
+   return;
+  }
+
+  pdfTools.hidden = false;
+  document.getElementById("pdfPreview").src = objectUrl;
+  document.getElementById("pdfMessage").hidden = true;
+  return;
+ }
+
+ if (!f.type.startsWith("image/")) {
+  alert("कृपया JPG, PNG या WEBP फोटो चुनें।");
+  input.value = "";
+  return;
+ }
+
+ image = new Image();
+
+ image.onload = draw;
+ image.onerror = () => alert("फोटो Preview नहीं हो पाया।");
+
+ image.src = objectUrl;
+ rotation = 0;
+ zoom.value = 1;
+ draw();
+});
+
+document.getElementById("rotate").addEventListener("click", () => {
+ rotation = (rotation + 90) % 360;
+ draw();
+});
+
+zoom.addEventListener("input", draw);
+
+document.getElementById("orderForm").addEventListener("submit", (e) => {
+ const f = input.files[0];
+
+ if (!f) {
+  e.preventDefault();
+  alert("कृपया फाइल चुनें।");
+  return;
+ }
+
+ if (selectedMode === "photo" && !image) {
+  e.preventDefault();
+  alert("कृपया सही फोटो चुनें।");
+  return;
+ }
+
+ if (selectedMode === "pdf" && f.type !== "application/pdf") {
+  e.preventDefault();
+  alert("PDF फाइल चुनें।");
+  return;
+ }
+
+ document.getElementById("submitBtn").disabled = true;
+ document.getElementById("submitBtn").textContent = "Processing...";
+});
+</script>
+
+</body>
+</html>
