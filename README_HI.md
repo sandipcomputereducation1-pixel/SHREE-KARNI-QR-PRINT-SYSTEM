@@ -1,40 +1,29 @@
-# Shree Karni QR Print System – Starter Version
+# Shree Karni QR Print System v2
 
-## इस पैकेज में
-- Customer Upload: JPG, PNG, WEBP और PDF
-- फोटो का बेसिक Preview
-- Print Size: A4, 4×6 Inch, ID Card, PVC 98×54 mm
-- Order ID और Order Status
-- Admin Login और Orders Dashboard
-- Pending / Printing / Completed
-- QR Code `/qr.png`
-- UPI ID display (manual verification; automatic payment gateway नहीं)
+## शामिल सुविधाएँ
+- Customer photo/PDF upload और order ID
+- Browser photo preview, rotate और zoom
+- 4×6 inch sheet पर 8 passport-size (25×35 mm) फोटो
+- PDF preview, page range, rotation और crop margin
+- Admin login, orders, print status और payment status
+- QR code: `/qr.png`
 
-## जरूरी बातें
-यह पहला working foundation है। इसमें अभी advanced Photo Editor (crop/resize/rotate/background removal), PDF page editor (page select/rotate/crop), payment gateway verification और Windows Print Agent शामिल नहीं हैं। उन्हें अगले चरण में जोड़ना है। Printing फिलहाल Admin के browser से file खोलकर Windows/Canon printer में manual Print के लिए है।
+## Local run
+```bash
+pip install -r requirements.txt
+python app.py
+```
+फिर `http://127.0.0.1:5000` खोलें।
 
-## Local Windows 11 पर चलाएँ
-1. Python 3.11 install करें।
-2. इस folder में Command Prompt खोलें।
-3. चलाएँ:
-   `py -m venv venv`
-   `venv\\Scripts\\activate`
-   `pip install -r requirements.txt`
-   `set ADMIN_PASSWORD=अपना-मजबूत-पासवर्ड`
-   `python app.py`
-4. Browser में `http://127.0.0.1:5000/upload` खोलें।
-5. Admin: `http://127.0.0.1:5000/admin`
+## Render Environment Variables
+- `ADMIN_USER`
+- `ADMIN_PASSWORD` (मजबूत नया पासवर्ड)
+- `SECRET_KEY` (लंबी random secret string)
+- `UPI_ID` (वैकल्पिक)
+- `DATA_DIR` (Persistent Disk mount path, जैसे `/var/data`)
 
-Default local login username `admin` है। Production में `ADMIN_PASSWORD` और `SECRET_KEY` Render Environment में जरूर सेट करें।
+## महत्वपूर्ण Storage नोट
+Render Free Web Service का local filesystem persistent storage नहीं है। Orders और uploaded files को deploy/restart के बाद सुरक्षित रखने के लिए Persistent Disk या external database/object storage जोड़ें। `DATA_DIR=/var/data` तभी रखें जब Render में उस path पर Persistent Disk attach हो; अन्यथा इसे हटाएँ और समझें कि data ephemeral होगा।
 
-## Render Deploy
-- Runtime: Python
-- Build Command: `pip install -r requirements.txt`
-- Start Command: `gunicorn app:app`
-- Environment Variables:
-  - `ADMIN_USER` = admin
-  - `ADMIN_PASSWORD` = मजबूत नया पासवर्ड
-  - `SECRET_KEY` = लंबी random secret
-  - `UPI_ID` = 7891411425@ptyes
-
-**महत्वपूर्ण:** Render Free instance की local disk स्थायी नहीं होती। इस starter में SQLite और uploads local disk पर हैं; production customer orders/files सुरक्षित रखने के लिए Persistent Disk या managed PostgreSQL + object storage जोड़ना जरूरी है। सार्वजनिक उपयोग से पहले यह काम करें।
+## Editor सीमाएँ
+Photo editor में rotate/zoom और 8-photo sheet उपलब्ध हैं। PDF में browser preview, page range, rotation और percentage crop उपलब्ध हैं। यह अभी professional freehand crop editor, payment gateway verification या direct printer driver integration नहीं है। Admin downloaded file को दुकान के Windows PC से print कर सकता है।
