@@ -1,248 +1,307 @@
-import os, uuid, sqlite3, qrcode
-from datetime import datetime
-from pathlib import Path
-from io import BytesIO
-from PIL import Image, ImageOps
-import fitz
-from flask import Flask, render_template, request, redirect, url_for, session, send_from_directory, flash, jsonify, send_file, abort
-from werkzeug.utils import secure_filename
 
-BASE = Path(__file__).resolve().parent
-DATA_DIR = Path(os.environ.get("DATA_DIR", str(BASE / "data")))
-UPLOAD_DIR = DATA_DIR / "uploads"
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-DB = DATA_DIR / "orders.db"
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Shree Karni QR Print System</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<style>
+.editor-buttons{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0}
+.editor-btn{padding:20px 10px;border:2px solid #dce3ed;border-radius:14px;background:#fff;color:#172554;cursor:pointer;font-size:17px;font-weight:bold}
+.editor-btn.active{border-color:#2563eb;background:#eff6ff;color:#1d4ed8}
+.editor-btn span{display:block;font-size:30px;margin-bottom:8px}
+.editor{margin:18px 0;padding:16px;border:1px solid #ddd;border-radius:12px}
+.preview{background:#eee;padding:10px;text-align:center;border-radius:10px;overflow:auto}
+#photoCanvas{max-width:100%;max-height:420px;background:white}
+#pdfPreview{width:100%;height:450px;border:0}
+.toolrow{display:flex;gap:15px;align-items:center;flex-wrap:wrap;margin:15px 0}
+.toolrow button{padding:10px 15px}
+.inline-label{display:flex;align-items:center;gap:8px}
+.check{display:flex;gap:10px;align-items:center}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.muted{font-size:13px;color:#666}
+[hidden]{display:none!important}
+@media(max-width:500px){.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
 
-app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "replace-this-secret-key")
-app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
-ADMIN_USER = os.environ.get("ADMIN_USER", "admin")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "ChangeMe123!")
-UPI_ID = os.environ.get("UPI_ID", "")
-SHOP_NAME = "Shree Karni Computer Dalot"
-ALLOWED = {".jpg", ".jpeg", ".png", ".webp", ".pdf"}
+<header>
+<h1>Shree Karni QR Print System</h1>
+<p>Shree Karni Computer Dalot – Pratapgarh, Rajasthan</p>
+</header>
 
-def db():
-    con = sqlite3.connect(DB)
-    con.row_factory = sqlite3.Row
-    return con
+<main class="panel">
+<h2>अपना Editor चुनें</h2>
 
-def init_db():
-    with db() as con:
-        con.execute("""CREATE TABLE IF NOT EXISTS orders (
-            id TEXT PRIMARY KEY, customer_name TEXT, mobile TEXT, print_size TEXT,
-            copies INTEGER, payment_mode TEXT, amount REAL, payment_status TEXT,
-            status TEXT, filename TEXT, original_name TEXT, created_at TEXT
-        )""")
-        # Upgrade databases created by the starter version.
-        cols = {r["name"] for r in con.execute("PRAGMA table_info(orders)")}
-        if "payment_status" not in cols:
-            con.execute("ALTER TABLE orders ADD COLUMN payment_status TEXT DEFAULT 'Unverified'")
-init_db()
+<div class="editor-buttons">
+<button type="button" class="editor-btn active" id="photoMode">
+<span>📷</span>PHOTO EDITOR
+<small>Crop • Rotate • Zoom</small>
+</button>
+<button type="button" class="editor-btn" id="pdfMode">
+<span>📄</span>PDF EDITOR
+<small>Preview • Page • Rotate</small>
+</button>
+</div>
 
-def allowed_file(name):
-    return Path(name).suffix.lower() in ALLOWED
+{% with messages = get_flashed_messages() %}
+{% for m in messages %}
+<p class="notice">{{m}}</p>
+{% endfor %}
+{% endwith %}
 
-def safe_int(value, default=1, low=1, high=100):
-    try:
-        return max(low, min(high, int(value)))
-    except (TypeError, ValueError):
-        return default
+<form id="orderForm" method="post" enctype="multipart/form-data">
 
-def safe_float(value, default=0):
-    try:
-        return max(0, min(100000, float(value)))
-    except (TypeError, ValueError):
-        return default
+<label>ग्राहक का नाम
+<input name="customer_name" maxlength="100" placeholder="नाम" required>
+</label>
 
-def process_photo(source_path, output_path, rotate, zoom, make_sheet=False):
-    img = Image.open(source_path)
-    img = ImageOps.exif_transpose(img).convert("RGB")
-    if rotate:
-        img = img.rotate(-rotate, expand=True, resample=Image.Resampling.BICUBIC)
-    # Center crop to a portrait passport-photo ratio, then apply a modest zoom.
-    target_ratio = 25 / 35
-    w, h = img.size
-    current = w / h
-    if current > target_ratio:
-        nw = int(h * target_ratio)
-        left = (w - nw) // 2
-        img = img.crop((left, 0, left + nw, h))
-    else:
-        nh = int(w / target_ratio)
-        top = (h - nh) // 2
-        img = img.crop((0, top, w, top + nh))
-    zoom = max(1.0, min(2.0, zoom))
-    if zoom > 1:
-        w, h = img.size
-        nw, nh = int(w / zoom), int(h / zoom)
-        left, top = (w - nw)//2, (h - nh)//2
-        img = img.crop((left, top, left+nw, top+nh))
-    img = img.resize((295, 413), Image.Resampling.LANCZOS)
-    if make_sheet:
-        sheet = Image.new("RGB", (1200, 1800), "white")
-        # Eight 25 x 35 mm photos, arranged 4 x 2 on a 4 x 6 inch sheet.
-        gap_x, gap_y = 5, 8
-        total_w = 4 * 295 + 3 * gap_x
-        total_h = 2 * 413 + gap_y
-        x0, y0 = (1200-total_w)//2, (1800-total_h)//2
-        for row in range(2):
-            for col in range(4):
-                x = x0 + col * (295 + gap_x)
-                y = y0 + row * (413 + gap_y)
-                sheet.paste(img, (x, y))
-        sheet.save(output_path, "JPEG", quality=95, dpi=(300, 300))
-    else:
-        img.save(output_path, "JPEG", quality=94, dpi=(300, 300))
+<label>मोबाइल नंबर
+<input name="mobile" inputmode="numeric" maxlength="20" placeholder="मोबाइल नंबर" required>
+</label>
 
-def process_pdf(source_path, output_path, page_start, page_end, rotate, margin):
-    doc = fitz.open(source_path)
-    total = len(doc)
-    start = max(1, min(total, page_start))
-    end = max(start, min(total, page_end or total))
-    out = fitz.open()
-    for index in range(start - 1, end):
-        page = doc[index]
-        page_copy = out.new_page(width=page.rect.width, height=page.rect.height)
-        page_copy.show_pdf_page(page_copy.rect, doc, index, rotate=rotate % 360)
-        if margin > 0:
-            rect = page_copy.rect
-            inset_x = rect.width * min(margin, 20) / 100
-            inset_y = rect.height * min(margin, 20) / 100
-            page_copy.set_cropbox(fitz.Rect(inset_x, inset_y, rect.width-inset_x, rect.height-inset_y))
-    out.save(output_path, garbage=4, deflate=True)
-    out.close()
-    doc.close()
+<label>फोटो / PDF फाइल चुनें
+<input id="file" type="file" name="file"
+accept="image/jpeg,image/png,image/webp" required>
+</label>
 
-@app.route("/")
-def home():
-    return redirect(url_for("upload_page"))
+<!-- PHOTO EDITOR -->
+<div id="photoTools" class="editor">
+<h3>📷 Photo Editor</h3>
+<div class="preview">
+<canvas id="photoCanvas"></canvas>
+<p id="photoMessage" class="muted">फोटो चुनने पर Preview दिखेगा।</p>
+</div>
 
-@app.route("/upload", methods=["GET", "POST"])
-def upload_page():
-    if request.method == "POST":
-        f = request.files.get("file")
-        if not f or not f.filename:
-            flash("कृपया फोटो या PDF चुनें।")
-            return redirect(url_for("upload_page"))
-        if not allowed_file(f.filename):
-            flash("केवल JPG, PNG, WEBP और PDF फाइल स्वीकार हैं।")
-            return redirect(url_for("upload_page"))
-        original = secure_filename(f.filename) or "upload"
-        ext = Path(original).suffix.lower()
-        order_id = "SK" + datetime.now().strftime("%y%m%d") + uuid.uuid4().hex[:5].upper()
-        raw_name = order_id + "_raw" + ext
-        raw_path = UPLOAD_DIR / raw_name
-        f.save(raw_path)
-        output_name = order_id + (".pdf" if ext == ".pdf" else ".jpg")
-        output_path = UPLOAD_DIR / output_name
-        try:
-            if ext == ".pdf":
-                pdf = fitz.open(raw_path)
-                pages = len(pdf)
-                pdf.close()
-                start = safe_int(request.form.get("page_start"), 1, 1, max(1, pages))
-                end = safe_int(request.form.get("page_end"), pages, 1, max(1, pages))
-                process_pdf(raw_path, output_path, start, end, safe_int(request.form.get("pdf_rotate"), 0, 0, 270), safe_float(request.form.get("pdf_margin"), 0))
-            else:
-                process_photo(raw_path, output_path,
-                              safe_int(request.form.get("photo_rotate"), 0, 0, 270),
-                              safe_float(request.form.get("photo_zoom"), 1),
-                              request.form.get("make_sheet") == "yes")
-        except Exception:
-            raw_path.unlink(missing_ok=True)
-            flash("फाइल प्रोसेस नहीं हो सकी। कृपया दूसरी फाइल चुनें।")
-            return redirect(url_for("upload_page"))
+<div class="toolrow">
+<button type="button" class="secondary" id="rotate">↻ Rotate 90°</button>
+<label class="inline-label">
+Zoom
+<input id="zoom" type="range" min="1" max="2" step=".05" value="1">
+</label>
+</div>
 
-        name = request.form.get("customer_name", "").strip()[:100]
-        mobile = request.form.get("mobile", "").strip()[:20]
-        size = request.form.get("print_size", "A4")
-        if size not in {"A4", "4×6 Inch", "ID Card", "PVC Card 98×54 mm"}:
-            size = "A4"
-        copies = safe_int(request.form.get("copies"), 1)
-        payment = request.form.get("payment_mode", "Cash")
-        if payment not in {"Cash", "UPI"}:
-            payment = "Cash"
-        amount = safe_float(request.form.get("amount", 0))
-        with db() as con:
-            con.execute("""INSERT INTO orders
-                (id, customer_name, mobile, print_size, copies, payment_mode, amount,
-                 payment_status, status, filename, original_name, created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (order_id, name, mobile, size, copies, payment, amount,
-                 "Unverified" if payment == "UPI" else "Cash at counter",
-                 "Pending", output_name, original,
-                 datetime.now().strftime("%d-%m-%Y %I:%M %p")))
-        return redirect(url_for("order_page", order_id=order_id))
-    return render_template("upload.html", upi_id=UPI_ID, shop_name=SHOP_NAME)
+<input type="hidden" name="photo_rotate" id="photoRotate" value="0">
+<input type="hidden" name="photo_zoom" id="photoZoom" value="1">
 
-@app.route("/order/<order_id>")
-def order_page(order_id):
-    with db() as con:
-        order = con.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
-    if not order:
-        return "Order not found", 404
-    return render_template("order.html", order=order, upi_id=UPI_ID)
+<label class="check">
+<input type="checkbox" name="make_sheet" value="yes">
+4×6 Inch शीट पर 8 फोटो बनाएं (25×35 mm)
+</label>
+<p class="muted">फोटो की प्रोसेसिंग सर्वर पर होगी।</p>
+</div>
 
-@app.route("/admin/login", methods=["GET", "POST"])
-def admin_login():
-    if request.method == "POST":
-        if request.form.get("username") == ADMIN_USER and request.form.get("password") == ADMIN_PASSWORD:
-            session.clear()
-            session["admin"] = True
-            return redirect(url_for("admin"))
-        flash("गलत यूज़रनेम या पासवर्ड")
-    return render_template("login.html")
+<!-- PDF EDITOR -->
+<div id="pdfTools" class="editor" hidden>
+<h3>📄 PDF Editor</h3>
+<div class="preview">
+<iframe id="pdfPreview" title="PDF Preview"></iframe>
+<p id="pdfMessage" class="muted">PDF चुनने पर Preview दिखेगा।</p>
+</div>
 
-@app.route("/admin/logout", methods=["POST", "GET"])
-def admin_logout():
-    session.clear()
-    return redirect(url_for("admin_login"))
+<div class="grid2">
+<label>पहला पेज
+<input name="page_start" type="number" min="1" value="1">
+</label>
+<label>आखिरी पेज
+<input name="page_end" type="number" min="1" placeholder="सभी पेज">
+</label>
+<label>Rotate
+<select name="pdf_rotate">
+<option value="0">0°</option>
+<option value="90">90°</option>
+<option value="180">180°</option>
+<option value="270">270°</option>
+</select>
+</label>
+<label>Crop Margin (%)
+<input name="pdf_margin" type="number" min="0" max="20" value="0">
+</label>
+</div>
+<p class="muted">चुने गए पेज, Rotation और Crop सर्वर पर लागू होंगे।</p>
+</div>
 
-@app.route("/admin")
-def admin():
-    if not session.get("admin"):
-        return redirect(url_for("admin_login"))
-    with db() as con:
-        orders = con.execute("SELECT * FROM orders ORDER BY rowid DESC").fetchall()
-        stats = con.execute("""SELECT COUNT(*) total,
-            SUM(CASE WHEN status='Pending' THEN 1 ELSE 0 END) pending,
-            SUM(CASE WHEN status='Completed' THEN 1 ELSE 0 END) completed,
-            SUM(amount) collection FROM orders""").fetchone()
-    return render_template("admin.html", orders=orders, stats=stats)
+<label>Print Size
+<select name="print_size">
+<option>A4</option>
+<option>4×6 Inch</option>
+<option>ID Card</option>
+<option>PVC Card 98×54 mm</option>
+</select>
+</label>
 
-@app.route("/admin/status/<order_id>", methods=["POST"])
-def update_status(order_id):
-    if not session.get("admin"):
-        return jsonify(ok=False), 401
-    status = request.form.get("status")
-    payment_status = request.form.get("payment_status", "Unverified")
-    if status not in {"Pending", "Printing", "Completed"}:
-        abort(400)
-    if payment_status not in {"Unverified", "Paid", "Cash at counter"}:
-        abort(400)
-    with db() as con:
-        con.execute("UPDATE orders SET status=?, payment_status=? WHERE id=?",
-                    (status, payment_status, order_id))
-    return redirect(url_for("admin"))
+<label>Copies
+<input name="copies" type="number" min="1" max="100" value="1" required>
+</label>
 
-@app.route("/file/<filename>")
-def get_file(filename):
-    if not session.get("admin"):
-        return "Unauthorized", 401
-    return send_from_directory(UPLOAD_DIR, filename, as_attachment=False)
+<label>Payment Mode
+<select name="payment_mode">
+<option>Cash</option>
+<option>UPI</option>
+</select>
+</label>
 
-@app.route("/qr.png")
-def qr_code():
-    img = qrcode.make(request.url_root.rstrip("/") + url_for("upload_page"))
-    buf = BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return send_file(buf, mimetype="image/png")
+<label>Amount (₹)
+<input name="amount" type="number" min="0" step="0.01" value="0">
+</label>
 
-@app.route("/health")
-def health():
-    return {"ok": True, "app": "Shree Karni QR Print System", "version": "2.0"}
+<button type="submit" id="submitBtn">Upload & Generate Order ID</button>
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False)
+</form>
+
+<p class="muted">अधिकतम फाइल सीमा 25 MB। UPI भुगतान Admin द्वारा सत्यापित किया जाएगा।</p>
+</main>
+
+<footer>सहायता: 7891411425 / 7339871128</footer>
+
+<script>
+const input = document.getElementById("file");
+const photoMode = document.getElementById("photoMode");
+const pdfMode = document.getElementById("pdfMode");
+const photoTools = document.getElementById("photoTools");
+const pdfTools = document.getElementById("pdfTools");
+const canvas = document.getElementById("photoCanvas");
+const ctx = canvas.getContext("2d");
+const zoom = document.getElementById("zoom");
+
+let image = null;
+let rotation = 0;
+let objectUrl = null;
+let selectedMode = "photo";
+
+function setMode(mode) {
+ selectedMode = mode;
+ photoMode.classList.toggle("active", mode === "photo");
+ pdfMode.classList.toggle("active", mode === "pdf");
+
+ photoTools.hidden = mode !== "photo";
+ pdfTools.hidden = mode !== "pdf";
+
+ input.accept = mode === "photo"
+ ? "image/jpeg,image/png,image/webp"
+ : "application/pdf";
+
+ input.value = "";
+ image = null;
+
+ if (objectUrl) {
+  URL.revokeObjectURL(objectUrl);
+  objectUrl = null;
+ }
+
+ canvas.width = 0;
+ canvas.height = 0;
+
+ document.getElementById("photoMessage").hidden = false;
+ document.getElementById("pdfMessage").hidden = false;
+}
+
+photoMode.addEventListener("click", () => setMode("photo"));
+pdfMode.addEventListener("click", () => setMode("pdf"));
+
+function draw() {
+ if (!image) return;
+
+ const z = Number(zoom.value);
+ const sw = image.width / z;
+ const sh = image.height / z;
+
+ canvas.width = 450;
+ canvas.height = 630;
+
+ ctx.fillStyle = "#fff";
+ ctx.fillRect(0,0,450,630);
+
+ ctx.save();
+ ctx.translate(225,315);
+ ctx.rotate(rotation * Math.PI / 180);
+
+ const scale = Math.max(450/sw,630/sh);
+
+ ctx.drawImage(
+  image,
+  -sw/2,-sh/2,sw,sh,
+  -225,-315,450,630
+ );
+
+ ctx.restore();
+
+ document.getElementById("photoMessage").hidden = true;
+ document.getElementById("photoRotate").value = rotation;
+ document.getElementById("photoZoom").value = z;
+}
+
+input.addEventListener("change", () => {
+ const f = input.files[0];
+ if (!f) return;
+
+ if (objectUrl) URL.revokeObjectURL(objectUrl);
+ objectUrl = URL.createObjectURL(f);
+
+ if (selectedMode === "pdf") {
+  if (f.type !== "application/pdf") {
+   alert("कृपया PDF फाइल चुनें।");
+   input.value = "";
+   return;
+  }
+
+  pdfTools.hidden = false;
+  document.getElementById("pdfPreview").src = objectUrl;
+  document.getElementById("pdfMessage").hidden = true;
+  return;
+ }
+
+ if (!f.type.startsWith("image/")) {
+  alert("कृपया JPG, PNG या WEBP फोटो चुनें।");
+  input.value = "";
+  return;
+ }
+
+ image = new Image();
+
+ image.onload = draw;
+ image.onerror = () => alert("फोटो Preview नहीं हो पाया।");
+
+ image.src = objectUrl;
+ rotation = 0;
+ zoom.value = 1;
+ draw();
+});
+
+document.getElementById("rotate").addEventListener("click", () => {
+ rotation = (rotation + 90) % 360;
+ draw();
+});
+
+zoom.addEventListener("input", draw);
+
+document.getElementById("orderForm").addEventListener("submit", (e) => {
+ const f = input.files[0];
+
+ if (!f) {
+  e.preventDefault();
+  alert("कृपया फाइल चुनें।");
+  return;
+ }
+
+ if (selectedMode === "photo" && !image) {
+  e.preventDefault();
+  alert("कृपया सही फोटो चुनें।");
+  return;
+ }
+
+ if (selectedMode === "pdf" && f.type !== "application/pdf") {
+  e.preventDefault();
+  alert("PDF फाइल चुनें।");
+  return;
+ }
+
+ document.getElementById("submitBtn").disabled = true;
+ document.getElementById("submitBtn").textContent = "Processing...";
+});
+</script>
+
+</body>
+</html>
