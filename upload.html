@@ -1,0 +1,22 @@
+<!doctype html><html lang="hi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Shree Karni QR Print</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<header><h1>Shree Karni QR Print System</h1><p>Shree Karni Computer Dalot – Pratapgarh, Rajasthan</p></header>
+<main class="panel"><h2>फोटो / PDF अपलोड करें</h2>
+{% with messages = get_flashed_messages() %}{% for m in messages %}<p class="notice">{{m}}</p>{% endfor %}{% endwith %}
+<form method="post" enctype="multipart/form-data">
+<label>ग्राहक का नाम<input name="customer_name" placeholder="नाम"></label>
+<label>मोबाइल नंबर<input name="mobile" inputmode="numeric" placeholder="मोबाइल नंबर"></label>
+<label>फाइल चुनें<input id="file" type="file" name="file" accept="image/jpeg,image/png,image/webp,application/pdf" required></label>
+<div id="preview" class="preview">फाइल चुनने पर Preview यहाँ दिखेगा</div>
+<label>Print Size<select name="print_size"><option>A4</option><option>4×6 Inch</option><option>ID Card</option><option>PVC Card 98×54 mm</option></select></label>
+<label>Copies<input name="copies" type="number" min="1" max="100" value="1"></label>
+<label>Payment Mode<select name="payment_mode"><option>Cash</option><option>UPI</option></select></label>
+<label>Amount (₹)<input name="amount" type="number" min="0" step="0.01" value="0"></label>
+<button type="submit">Upload & Generate Order ID</button></form>
+<p class="muted">फोटो/PDF की अधिकतम फाइल सीमा 25 MB है। UPI भुगतान Admin द्वारा सत्यापित किया जाएगा।</p></main>
+<footer>सहायता: 7891411425 / 7339871128</footer>
+<script>
+const input=document.getElementById('file'), box=document.getElementById('preview');
+input.addEventListener('change',()=>{box.innerHTML='';const f=input.files[0];if(!f){box.textContent='फाइल चुनने पर Preview यहाँ दिखेगा';return;}
+if(f.type==='application/pdf'){box.textContent='PDF चुनी गई: '+f.name+' (पूरा PDF Preview Admin/Print में उपलब्ध होगा)';}
+else{const img=document.createElement('img');img.src=URL.createObjectURL(f);img.alt='Photo preview';box.appendChild(img);}});
+</script></body></html>
